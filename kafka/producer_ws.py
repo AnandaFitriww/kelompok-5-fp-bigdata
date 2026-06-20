@@ -5,27 +5,36 @@ from kafka import KafkaProducer
 
 # Inisialisasi Kafka Producer
 producer = KafkaProducer(
-    bootstrap_servers=['localhost:9092'],
+    bootstrap_servers=['kafka:29092'],
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
 )
+
+# Topic names sesuai arsitektur lakehouse
+TOPIC_TELEMETRY = "bus-telemetry-raw"
+TOPIC_TRANSACTION = "transaction-raw"
 
 def on_message(ws, message):
     try:
         data = json.loads(message)
         
-        # Pengecekan respons awal (server info)
+        # Skip pesan control (server info)
         if data.get("type") == "control":
             print(f"[SERVER INFO] {data.get('event')}")
             return
 
-        # PISAHKAN JALUR DATA: Penumpang vs GPS
-        if data.get("type") == "transaction_batch":
-            producer.send('topic-penumpang', data)
-            print(f"[PENUMPANG] Berhasil kirim {data.get('count')} data transaksi ke Kafka.")
+        # TELEMETRY: Explode batch → kirim per-record ke Kafka
+        if data.get("type") == "vehicle_telemetry_batch":
+            vehicles = data.get("vehicles", [])
+            for vehicle in vehicles:
+                producer.send(TOPIC_TELEMETRY, vehicle)
+            print(f"[TELEMETRY] Berhasil kirim {len(vehicles)} record ke Kafka topic '{TOPIC_TELEMETRY}'.")
             
-        elif data.get("type") == "vehicle_telemetry_batch":
-            producer.send('topic-gps', data)
-            print(f"[GPS] Berhasil kirim {data.get('count')} data posisi bus ke Kafka.")
+        # TRANSACTION: Explode batch → kirim per-record ke Kafka
+        elif data.get("type") == "transaction_batch":
+            transactions = data.get("transactions", [])
+            for txn in transactions:
+                producer.send(TOPIC_TRANSACTION, txn)
+            print(f"[TRANSACTION] Berhasil kirim {len(transactions)} record ke Kafka topic '{TOPIC_TRANSACTION}'.")
             
     except Exception as e:
         print(f"Gagal memproses pesan: {e}")
@@ -38,7 +47,7 @@ def on_close(ws, close_status_code, close_msg):
 
 def on_open(ws):
     print(f"[OPEN] Terhubung ke {ws.url}. Mengirim perintah 'start'...")
-    ws.send("start")  # INI WAJIB AGAR SERVER MAU NGIRIM DATA
+    ws.send("start")  # WAJIB agar server mulai kirim data
 
 def run_ws(url):
     ws = websocket.WebSocketApp(
@@ -51,14 +60,16 @@ def run_ws(url):
     ws.run_forever()
 
 if __name__ == "__main__":
-    url_penumpang = "ws://70.153.136.193:8765"
-    url_gps = "ws://70.153.136.193:8766"
+    url_transaction = "ws://70.153.136.193:8765"
+    url_telemetry = "ws://70.153.136.193:8766"
 
     print("Memulai Dual-Stream WebSocket ke Kafka...")
+    print(f"  Topic telemetry : {TOPIC_TELEMETRY}")
+    print(f"  Topic transaksi : {TOPIC_TRANSACTION}")
     
     # Menjalankan 2 WebSocket secara paralel dengan Threading
-    t1 = threading.Thread(target=run_ws, args=(url_penumpang,))
-    t2 = threading.Thread(target=run_ws, args=(url_gps,))
+    t1 = threading.Thread(target=run_ws, args=(url_transaction,), daemon=True)
+    t2 = threading.Thread(target=run_ws, args=(url_telemetry,), daemon=True)
     
     t1.start()
     t2.start()

@@ -5,6 +5,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY producer_ws.py .
+COPY api_server.py .
 
-CMD ["python", "producer_ws.py"]
+EXPOSE 5000
+
+CMD ["python", "api_server.py"]

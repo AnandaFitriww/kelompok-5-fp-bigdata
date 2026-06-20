@@ -23,6 +23,14 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
 
+  # --- PRODUCER (WEBSOCKET -> KAFKA) ---
+  producer:
+    build: ./kafka
+    container_name: sheltereye-producer
+    depends_on:
+      - kafka
+    restart: on-failure
+
   # --- 2. LAYER PROCESSING (APACHE SPARK RESMI) ---
   spark-master:
     image: apache/spark:3.5.1
@@ -72,6 +80,15 @@ services:
       - ./hadoop.env
     volumes:
       - hadoop_datanode:/hadoop/dfs/data
+
+  # --- 4. LAYER DASHBOARD API SERVER ---
+  api-server:
+    build: ./dashboard
+    container_name: sheltereye-api-server
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./lakehouse/gold_exports:/app/gold_exports  # Share directory for JSON exports
 
 volumes:
   hadoop_namenode:
