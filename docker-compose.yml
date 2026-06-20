@@ -1,0 +1,78 @@
+services:
+  # --- 1. LAYER INGESTION (APACHE KAFKA & ZOOKEEPER) ---
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.0
+    container_name: sheltereye-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: sheltereye-kafka
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+
+  # --- 2. LAYER PROCESSING (APACHE SPARK RESMI) ---
+  spark-master:
+    image: apache/spark:3.5.1
+    container_name: sheltereye-spark-master
+    user: root
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    volumes:
+      - .:/opt/spark/work-dir
+
+  spark-worker:
+    image: apache/spark:3.5.1
+    container_name: sheltereye-spark-worker
+    user: root
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    depends_on:
+      - spark-master
+    volumes:
+      - .:/opt/spark/work-dir
+
+  # --- 3. LAYER STORAGE (HADOOP HDFS) ---
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: sheltereye-namenode
+    restart: always
+    ports:
+      - "9870:9870"
+      - "9000:9000"
+    environment:
+      - CLUSTER_NAME=sheltereye-cluster
+    env_file:
+      - ./hadoop.env
+    volumes:
+      - hadoop_namenode:/hadoop/dfs/name
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: sheltereye-datanode
+    restart: always
+    ports:
+      - "9864:9864"
+    depends_on:
+      - namenode
+    env_file:
+      - ./hadoop.env
+    volumes:
+      - hadoop_datanode:/hadoop/dfs/data
+
+volumes:
+  hadoop_namenode:
+  hadoop_datanode:
